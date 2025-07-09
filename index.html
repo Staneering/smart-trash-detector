@@ -1,211 +1,129 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Trash Detection System</title>
-    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@3.11.0/dist/tf.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@teachablemachine/image@0.8/dist/teachablemachine-image.min.js"></script>
-    <style>
-        body {
-            font-family: Arial, sans-serif;
-            max-width: 600px;
-            margin: 0 auto;
-            padding: 20px;
-            background-color: #f5f5f5;
-        }
-        h1 {
-            color: #333;
-            text-align: center;
-        }
-        .detection-box {
-            background-color: white;
-            border-radius: 10px;
-            padding: 20px;
-            margin-top: 20px;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-        }
-        #webcam-view, #image-preview {
-            width: 100%;
-            border-radius: 8px;
-            margin: 15px 0;
-            display: none;
-        }
-        button {
-            background-color: #4CAF50;
-            color: white;
-            border: none;
-            padding: 10px 20px;
-            margin: 10px 5px;
-            border-radius: 5px;
-            cursor: pointer;
-            font-size: 16px;
-        }
-        button:disabled {
-            background-color: #cccccc;
-        }
-        #result {
-            margin-top: 20px;
-            padding: 15px;
-            border-radius: 5px;
-            font-weight: bold;
-            text-align: center;
-        }
-        .trash { background-color: #ffebee; color: #c62828; }
-        .non-trash { background-color: #e8f5e9; color: #2e7d32; }
-        .confidence-bar {
-            height: 20px;
-            background: #e0e0e0;
-            border-radius: 10px;
-            margin-top: 10px;
-        }
-        .confidence-level {
-            height: 100%;
-            border-radius: 10px;
-        }
-        .trash .confidence-level { background: #ef5350; }
-        .non-trash .confidence-level { background: #66bb6a; }
-    </style>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>smart trash detector</title>
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@3.11.0/dist/tf.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@teachablemachine/image@0.8/dist/teachablemachine-image.min.js"></script>
+<style>
+body { font-family: 'Segoe UI', sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 100vh; background: #f0f4f8; margin: 0; }
+.card { background: white; border-radius: 16px; box-shadow: 0 8px 20px rgba(0,0,0,0.08); padding: 20px; width: 90%; max-width: 400px; text-align: center; }
+button { background: linear-gradient(to right, #4facfe, #00f2fe); border: none; color: white; padding: 12px 20px; margin: 10px; border-radius: 8px; font-size: 16px; cursor: pointer; transition: transform 0.2s; }
+button:hover { transform: scale(1.05); }
+#result { margin-top: 20px; font-size: 18px; color: #333; min-height: 60px; }
+video, img { width: 100%; border-radius: 12px; margin-top: 15px; }
+.shimmer { height: 20px; background: linear-gradient(90deg, #f0f0f0 25%, #e0e0e0 50%, #f0f0f0 75%); background-size: 200% 100%; animation: shimmer 1.5s infinite; border-radius: 8px; margin: 8px 0; }
+@keyframes shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
+</style>
 </head>
 <body>
-    <h1>🗑️ Trash Detection System</h1>
-    <p>Detects whether an object is trash or not</p>
+<div class="card">
+<h2>smart trash detector</h2>
+<button id="upload-btn">Upload Image</button>
+<button id="webcam-btn">Use Webcam Live</button>
+<input type="file" id="file-input" accept="image/*" style="display:none;" />
+<img id="image-preview" style="display:none;" />
+<video id="webcam" autoplay playsinline style="display:none;"></video>
+<div id="result">Results will appear here</div>
+</div>
+<script>
+let model, webcamStream, animationId;
+const uploadBtn = document.getElementById('upload-btn');
+const webcamBtn = document.getElementById('webcam-btn');
+const fileInput = document.getElementById('file-input');
+const imagePreview = document.getElementById('image-preview');
+const webcam = document.getElementById('webcam');
+const resultDiv = document.getElementById('result');
 
-    <div class="detection-box">
-        <button id="upload-mode">Upload Image</button>
-        <button id="webcam-mode">Use Webcam</button>
-        
-        <div id="upload-section">
-            <input type="file" id="file-upload" accept="image/*" style="display:none;">
-            <img id="image-preview">
-            <button id="predict-btn" disabled>Detect Trash</button>
-        </div>
+async function loadModel() { model = await tmImage.load('./model.json', './metadata.json'); }
 
-        <div id="webcam-section" style="display:none;">
-            <video id="webcam-view" autoplay playsinline></video>
-            <button id="start-webcam">Start Camera</button>
-            <button id="stop-webcam" disabled>Stop Camera</button>
-        </div>
+uploadBtn.onclick = () => { stopWebcam(); fileInput.click(); };
+fileInput.onchange = () => { const file = fileInput.files[0]; if (file) { imagePreview.src = URL.createObjectURL(file); imagePreview.style.display = 'block'; webcam.style.display = 'none'; predictImage(); } };
+webcamBtn.onclick = async () => { stopWebcam(); imagePreview.style.display = 'none'; webcam.style.display = 'block'; webcamStream = await navigator.mediaDevices.getUserMedia({ video: true }); webcam.srcObject = webcamStream; startLivePrediction(); };
+async function predictImage() { resultDiv.innerHTML = '<div class="shimmer"></div><div class="shimmer"></div>'; const img = new Image(); img.src = imagePreview.src; img.onload = async () => { const predictions = await model.predict(img); displayPrediction(predictions); }; }
+async function startLivePrediction() { function loop() { const tempCanvas = document.createElement('canvas'); tempCanvas.width = webcam.videoWidth; tempCanvas.height = webcam.videoHeight; const ctx = tempCanvas.getContext('2d'); ctx.drawImage(webcam, 0, 0); model.predict(tempCanvas).then(predictions => { displayPrediction(predictions); }); animationId = requestAnimationFrame(loop); } loop(); }
+function displayPrediction(predictions) { predictions.sort((a, b) => b.probability - a.probability); resultDiv.innerHTML = predictions.map(p => ${p.className}: ${(p.probability * 100).toFixed(1)}%).join('<br>'); }
+function stopWebcam() { if (webcamStream) { webcamStream.getTracks().forEach(track => track.stop()); webcamStream = null; } if (animationId) { cancelAnimationFrame(animationId); animationId = null; } webcam.style.display = 'none'; resultDiv.textContent = 'Results will appear here'; }
+window.onload = loadModel;
+</script>
+</body>
+</html><!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Smart Trash Detection</title>
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@3.11.0/dist/tf.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@teachablemachine/image@0.8/dist/teachablemachine-image.min.js"></script>
+<style>
+body { font-family: 'Segoe UI', sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 100vh; background: #f0f4f8; margin: 0; }
+.card { background: white; border-radius: 16px; box-shadow: 0 8px 20px rgba(0,0,0,0.08); padding: 20px; width: 90%; max-width: 400px; text-align: center; }
+button { background: linear-gradient(to right, #4facfe, #00f2fe); border: none; color: white; padding: 12px 20px; margin: 10px; border-radius: 8px; font-size: 16px; cursor: pointer; transition: transform 0.2s; }
+button:hover { transform: scale(1.05); }
+#result { margin-top: 20px; font-size: 18px; color: #333; }
+video, img { width: 100%; border-radius: 12px; margin-top: 15px; }
+</style>
+</head>
+<body>
+<div class="card">
+<h2>smart trash detector</h2>
+<button id="upload-btn">Upload Image</button>
+<button id="webcam-btn">Use Webcam</button>
+<input type="file" id="file-input" accept="image/*" style="display:none;" />
+<img id="image-preview" style="display:none;" />
+<video id="webcam" autoplay playsinline style="display:none;"></video>
+<button id="analyze-btn" style="display:none;">Analyze</button>
+<div id="result">Results will appear here</div>
+</div>
+<script>
+let model, webcamStream;
+const uploadBtn = document.getElementById('upload-btn');
+const webcamBtn = document.getElementById('webcam-btn');
+const fileInput = document.getElementById('file-input');
+const imagePreview = document.getElementById('image-preview');
+const webcam = document.getElementById('webcam');
+const analyzeBtn = document.getElementById('analyze-btn');
+const resultDiv = document.getElementById('result');
 
-        <div id="result">
-            <p>Upload an image or enable camera to start detection</p>
-        </div>
-    </div>
+async function loadModel() {
+    model = await tmImage.load('./model.json', './metadata.json');
+}
 
-    <script>
-        // DOM Elements
-        const predictBtn = document.getElementById('predict-btn');
-        const resultDiv = document.getElementById('result');
-        const fileUpload = document.getElementById('file-upload');
-        const imagePreview = document.getElementById('image-preview');
-        const webcamView = document.getElementById('webcam-view');
-
-        // Global variables
-        let model;
-        let webcam;
-        let isWebcamActive = false;
-
-        // Initialize model
-        async function init() {
-            model = await tmImage.load('./model.json', './metadata.json');
-            console.log("Model loaded successfully");
-        }
-
-        // Upload mode
-        document.getElementById('upload-mode').addEventListener('click', () => {
-            fileUpload.click();
-        });
-
-        fileUpload.addEventListener('change', (e) => {
-            const file = e.target.files[0];
-            if (file) {
-                const reader = new FileReader();
-                reader.onload = (event) => {
-                    imagePreview.src = event.target.result;
-                    imagePreview.style.display = 'block';
-                    predictBtn.disabled = false;
-                };
-                reader.readAsDataURL(file);
-            }
-        });
-
-        // Webcam mode
-        document.getElementById('webcam-mode').addEventListener('click', async () => {
-            document.getElementById('upload-section').style.display = 'none';
-            document.getElementById('webcam-section').style.display = 'block';
-        });
-
-        document.getElementById('start-webcam').addEventListener('click', async () => {
-            try {
-                webcam = new tmImage.Webcam(400, 400, true);
-                await webcam.setup();
-                await webcam.play();
-                webcamView.srcObject = webcam.webcam.stream;
-                webcamView.style.display = 'block';
-                document.getElementById('start-webcam').disabled = true;
-                document.getElementById('stop-webcam').disabled = false;
-                isWebcamActive = true;
-                detectLoop();
-            } catch (error) {
-                console.error("Webcam error:", error);
-                resultDiv.innerHTML = `<p style="color:red">Camera error: ${error.message}</p>`;
-            }
-        });
-
-        document.getElementById('stop-webcam').addEventListener('click', () => {
-            if (webcam) {
-                webcam.stop();
-                webcamView.style.display = 'none';
-                isWebcamActive = false;
-                document.getElementById('start-webcam').disabled = false;
-                document.getElementById('stop-webcam').disabled = true;
-            }
-        });
-
-        // Detection function
-        async function detect() {
-            let image;
-            
-            if (isWebcamActive) {
-                image = webcam.canvas;
-            } else {
-                image = imagePreview;
-            }
-
-            const prediction = await model.predict(image);
-            displayResult(prediction);
-        }
-
-        // Continuous detection for webcam
-        function detectLoop() {
-            if (isWebcamActive) {
-                detect();
-                requestAnimationFrame(detectLoop);
-            }
-        }
-
-        // Display results
-        function displayResult(predictions) {
-            predictions.sort((a, b) => b.probability - a.probability);
-            const topPrediction = predictions[0];
-            
-            // Determine which class is "trash" (case insensitive)
-            const isTrash = topPrediction.className.toLowerCase().includes('trash');
-            const confidence = (topPrediction.probability * 100).toFixed(1);
-            
-            resultDiv.className = isTrash ? 'trash' : 'non-trash';
-            resultDiv.innerHTML = `
-                <h2>${isTrash ? '🚮 TRASH' : '✅ NON-TRASH'}</h2>
-                <p>Confidence: ${confidence}%</p>
-                <div class="confidence-bar">
-                    <div class="confidence-level" style="width: ${confidence}%"></div>
-                </div>
-            `;
-        }
-
-        // Initialize
-        window.onload = init;
-        predictBtn.addEventListener('click', detect);
-    </script>
+uploadBtn.onclick = () => { fileInput.click(); };
+fileInput.onchange = () => {
+    const file = fileInput.files[0];
+    if (file) {
+        imagePreview.src = URL.createObjectURL(file);
+        imagePreview.style.display = 'block';
+        webcam.style.display = 'none';
+        analyzeBtn.style.display = 'inline-block';
+    }
+};
+webcamBtn.onclick = async () => {
+    imagePreview.style.display = 'none';
+    webcam.style.display = 'block';
+    analyzeBtn.style.display = 'inline-block';
+    webcamStream = await navigator.mediaDevices.getUserMedia({ video: true });
+    webcam.srcObject = webcamStream;
+};
+analyzeBtn.onclick = async () => {
+    resultDiv.textContent = 'Analyzing...';
+    let predictions;
+    if (webcam.style.display === 'block') {
+        const tempCanvas = document.createElement('canvas');
+        tempCanvas.width = webcam.videoWidth;
+        tempCanvas.height = webcam.videoHeight;
+        const ctx = tempCanvas.getContext('2d');
+        ctx.drawImage(webcam, 0, 0);
+        predictions = await model.predict(tempCanvas);
+    } else if (imagePreview.style.display === 'block') {
+        predictions = await model.predict(imagePreview);
+    }
+    predictions.sort((a, b) => b.probability - a.probability);
+    resultDiv.innerHTML = predictions.map(p => ${p.className}: ${(p.probability * 100).toFixed(1)}%).join('<br>');
+};
+window.onload = loadModel;
+</script>
 </body>
 </html>
