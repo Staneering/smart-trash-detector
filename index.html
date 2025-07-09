@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>Live Mood Classifier</title>
+<title>Smart Trash Detector</title>
 <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@3.11.0/dist/tf.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@teachablemachine/image@0.8/dist/teachablemachine-image.min.js"></script>
 <style>
@@ -14,12 +14,14 @@ button:hover { transform: scale(1.05); }
 #result { margin-top: 20px; font-size: 18px; color: #333; min-height: 60px; }
 video, img { width: 100%; border-radius: 12px; margin-top: 15px; }
 .shimmer { height: 20px; background: linear-gradient(90deg, #f0f0f0 25%, #e0e0e0 50%, #f0f0f0 75%); background-size: 200% 100%; animation: shimmer 1.5s infinite; border-radius: 8px; margin: 8px 0; }
+.trash-detected { color: #e63946; font-weight: bold; }
+.non-trash-detected { color: #2a9d8f; font-weight: bold; }
 @keyframes shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
 </style>
 </head>
 <body>
 <div class="card">
-<h2>Live Mood Classifier</h2>
+<h2>Smart Trash Detector</h2>
 <button id="upload-btn">Upload Image</button>
 <button id="webcam-btn">Use Webcam Live</button>
 <input type="file" id="file-input" accept="image/*" style="display:none;" />
@@ -36,93 +38,162 @@ const imagePreview = document.getElementById('image-preview');
 const webcam = document.getElementById('webcam');
 const resultDiv = document.getElementById('result');
 
-async function loadModel() { model = await tmImage.load('./model.json', './metadata.json'); }
+// Flag to control prediction loop
+let isPredicting = false;
 
-uploadBtn.onclick = () => { stopWebcam(); fileInput.click(); };
-fileInput.onchange = () => { const file = fileInput.files[0]; if (file) { imagePreview.src = URL.createObjectURL(file); imagePreview.style.display = 'block'; webcam.style.display = 'none'; predictImage(); } };
-webcamBtn.onclick = async () => { stopWebcam(); imagePreview.style.display = 'none'; webcam.style.display = 'block'; webcamStream = await navigator.mediaDevices.getUserMedia({ video: true }); webcam.srcObject = webcamStream; startLivePrediction(); };
-async function predictImage() { resultDiv.innerHTML = '<div class="shimmer"></div><div class="shimmer"></div>'; const img = new Image(); img.src = imagePreview.src; img.onload = async () => { const predictions = await model.predict(img); displayPrediction(predictions); }; }
-async function startLivePrediction() { function loop() { const tempCanvas = document.createElement('canvas'); tempCanvas.width = webcam.videoWidth; tempCanvas.height = webcam.videoHeight; const ctx = tempCanvas.getContext('2d'); ctx.drawImage(webcam, 0, 0); model.predict(tempCanvas).then(predictions => { displayPrediction(predictions); }); animationId = requestAnimationFrame(loop); } loop(); }
-function displayPrediction(predictions) { predictions.sort((a, b) => b.probability - a.probability); resultDiv.innerHTML = predictions.map(p => `${p.className}: ${(p.probability * 100).toFixed(1)}%`).join('<br>'); }
-function stopWebcam() { if (webcamStream) { webcamStream.getTracks().forEach(track => track.stop()); webcamStream = null; } if (animationId) { cancelAnimationFrame(animationId); animationId = null; } webcam.style.display = 'none'; resultDiv.textContent = 'Results will appear here'; }
-window.onload = loadModel;
-</script>
-</body>
-</html><!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>Simple Mood Classifier</title>
-<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@3.11.0/dist/tf.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/@teachablemachine/image@0.8/dist/teachablemachine-image.min.js"></script>
-<style>
-body { font-family: 'Segoe UI', sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 100vh; background: #f0f4f8; margin: 0; }
-.card { background: white; border-radius: 16px; box-shadow: 0 8px 20px rgba(0,0,0,0.08); padding: 20px; width: 90%; max-width: 400px; text-align: center; }
-button { background: linear-gradient(to right, #4facfe, #00f2fe); border: none; color: white; padding: 12px 20px; margin: 10px; border-radius: 8px; font-size: 16px; cursor: pointer; transition: transform 0.2s; }
-button:hover { transform: scale(1.05); }
-#result { margin-top: 20px; font-size: 18px; color: #333; }
-video, img { width: 100%; border-radius: 12px; margin-top: 15px; }
-</style>
-</head>
-<body>
-<div class="card">
-<h2>Mood Classifier</h2>
-<button id="upload-btn">Upload Image</button>
-<button id="webcam-btn">Use Webcam</button>
-<input type="file" id="file-input" accept="image/*" style="display:none;" />
-<img id="image-preview" style="display:none;" />
-<video id="webcam" autoplay playsinline style="display:none;"></video>
-<button id="analyze-btn" style="display:none;">Analyze</button>
-<div id="result">Results will appear here</div>
-</div>
-<script>
-let model, webcamStream;
-const uploadBtn = document.getElementById('upload-btn');
-const webcamBtn = document.getElementById('webcam-btn');
-const fileInput = document.getElementById('file-input');
-const imagePreview = document.getElementById('image-preview');
-const webcam = document.getElementById('webcam');
-const analyzeBtn = document.getElementById('analyze-btn');
-const resultDiv = document.getElementById('result');
-
-async function loadModel() {
-    model = await tmImage.load('./model.json', './metadata.json');
+async function loadModel() { 
+    try {
+        resultDiv.textContent = "Loading model...";
+        model = await tmImage.load('./model.json', './metadata.json');
+        console.log("Model loaded successfully");
+        resultDiv.textContent = "Model loaded. Click buttons to start.";
+    } catch (error) {
+        console.error("Error loading model:", error);
+        resultDiv.innerHTML = "Error loading the model. Please check console for details.";
+    }
 }
 
-uploadBtn.onclick = () => { fileInput.click(); };
-fileInput.onchange = () => {
-    const file = fileInput.files[0];
-    if (file) {
-        imagePreview.src = URL.createObjectURL(file);
-        imagePreview.style.display = 'block';
-        webcam.style.display = 'none';
-        analyzeBtn.style.display = 'inline-block';
+uploadBtn.onclick = () => { 
+    stopWebcam(); 
+    fileInput.click(); 
+};
+
+fileInput.onchange = () => { 
+    const file = fileInput.files[0]; 
+    if (file) { 
+        imagePreview.src = URL.createObjectURL(file); 
+        imagePreview.style.display = 'block'; 
+        webcam.style.display = 'none'; 
+        predictImage(); 
+    } 
+};
+
+webcamBtn.onclick = async () => { 
+    try {
+        stopWebcam(); 
+        imagePreview.style.display = 'none'; 
+        webcam.style.display = 'block'; 
+        resultDiv.textContent = "Starting webcam...";
+        
+        // Get webcam stream
+        webcamStream = await navigator.mediaDevices.getUserMedia({ 
+            video: { width: 640, height: 480, facingMode: "environment" },
+            audio: false 
+        }); 
+        webcam.srcObject = webcamStream;
+        
+        // Wait for video to be ready
+        webcam.onloadedmetadata = () => {
+            webcam.play();
+            startLivePrediction();
+        };
+    } catch (error) {
+        console.error("Error accessing webcam:", error);
+        resultDiv.innerHTML = "Could not access webcam. Please ensure permissions are granted.";
     }
 };
-webcamBtn.onclick = async () => {
-    imagePreview.style.display = 'none';
-    webcam.style.display = 'block';
-    analyzeBtn.style.display = 'inline-block';
-    webcamStream = await navigator.mediaDevices.getUserMedia({ video: true });
-    webcam.srcObject = webcamStream;
-};
-analyzeBtn.onclick = async () => {
-    resultDiv.textContent = 'Analyzing...';
-    let predictions;
-    if (webcam.style.display === 'block') {
-        const tempCanvas = document.createElement('canvas');
-        tempCanvas.width = webcam.videoWidth;
-        tempCanvas.height = webcam.videoHeight;
-        const ctx = tempCanvas.getContext('2d');
-        ctx.drawImage(webcam, 0, 0);
-        predictions = await model.predict(tempCanvas);
-    } else if (imagePreview.style.display === 'block') {
-        predictions = await model.predict(imagePreview);
+
+async function predictImage() { 
+    resultDiv.innerHTML = '<div class="shimmer"></div><div class="shimmer"></div>'; 
+    const img = new Image(); 
+    img.src = imagePreview.src; 
+    img.onload = async () => { 
+        try {
+            const predictions = await model.predict(img); 
+            displayPrediction(predictions); 
+        } catch (error) {
+            console.error("Prediction error:", error);
+            resultDiv.innerHTML = "Error during prediction. Please try again.";
+        }
+    }; 
+}
+
+async function startLivePrediction() {
+    isPredicting = true;
+    
+    async function predictionLoop() {
+        if (!isPredicting) return;
+        
+        try {
+            // Create temporary canvas
+            const canvas = document.createElement('canvas');
+            canvas.width = webcam.videoWidth;
+            canvas.height = webcam.videoHeight;
+            const ctx = canvas.getContext('2d');
+            
+            // Draw current webcam frame
+            ctx.drawImage(webcam, 0, 0, canvas.width, canvas.height);
+            
+            // Make prediction
+            const predictions = await model.predict(canvas);
+            displayPrediction(predictions);
+            
+            // Continue loop
+            if (isPredicting) {
+                animationId = requestAnimationFrame(predictionLoop);
+            }
+        } catch (error) {
+            console.error("Prediction error:", error);
+            if (isPredicting) {
+                animationId = requestAnimationFrame(predictionLoop);
+            }
+        }
     }
-    predictions.sort((a, b) => b.probability - a.probability);
-    resultDiv.innerHTML = predictions.map(p => `${p.className}: ${(p.probability * 100).toFixed(1)}%`).join('<br>');
-};
+    
+    // Start the prediction loop
+    predictionLoop();
+}
+
+function displayPrediction(predictions) { 
+    predictions.sort((a, b) => b.probability - a.probability); 
+    const topPrediction = predictions[0];
+    
+    // Highlight the result based on the class
+    let resultHTML = predictions.map(p => {
+        const percentage = (p.probability * 100).toFixed(1);
+        if (p.className.toLowerCase().includes('trash')) {
+            return `<span class="trash-detected">${p.className}: ${percentage}%</span>`;
+        } else {
+            return `<span class="non-trash-detected">${p.className}: ${percentage}%</span>`;
+        }
+    }).join('<br>');
+    
+    // Add a clear message based on the top prediction
+    if (topPrediction.probability > 0.7) {
+        if (topPrediction.className.toLowerCase().includes('trash')) {
+            resultHTML += '<br><br><strong class="trash-detected">TRASH DETECTED!</strong>';
+        } else {
+            resultHTML += '<br><br><strong class="non-trash-detected">No trash detected</strong>';
+        }
+    }
+    
+    resultDiv.innerHTML = resultHTML;
+}
+
+function stopWebcam() { 
+    // Stop prediction loop
+    isPredicting = false;
+    
+    if (animationId) { 
+        cancelAnimationFrame(animationId); 
+        animationId = null; 
+    }
+    
+    // Stop webcam stream
+    if (webcamStream) { 
+        webcamStream.getTracks().forEach(track => track.stop()); 
+        webcamStream = null; 
+    } 
+    
+    webcam.style.display = 'none'; 
+    resultDiv.textContent = 'Results will appear here'; 
+}
+
+// Clean up when page is closed
+window.addEventListener('beforeunload', () => {
+    stopWebcam();
+});
+
 window.onload = loadModel;
 </script>
 </body>
